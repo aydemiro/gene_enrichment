@@ -85,13 +85,13 @@ if de.duplicated(subset=id_column).any():
         print("Duplicated gene IDs in the input: {}".format(dups))
         de = de.loc[~drop_index]
 
-# filter significant genes based on p-value and log fold change cutoffs
+# filter significant genes based on p-value and log fold change cutoffs   
 if pvalue_column not in ("", "NA", "na"):
     sig_mask = de[pvalue_column] <= pvalue_cutoff
     sig_df = de.loc[sig_mask].copy()
 else:
     sig_df = de.copy()
-
+    
 if lfc_column not in ("", "NA", "na"):
     up_mask = de[lfc_column] >= lfc_cutoff
     down_mask = de[lfc_column] <= lfc_cutoff
@@ -180,7 +180,7 @@ def get_intersection_genes(row):
     return genes
 
 # apply the function to get the gene names for the intersecting genes
-results["intersection"] = results.apply(get_intersection_genes, axis=1)
+results["genes"] = results.apply(get_intersection_genes, axis=1)
 
 # calcutale fold enrichment for each term
 results["Fold Enrichment"] = (
@@ -204,19 +204,14 @@ results["database"] = results["source"].replace(db_map)
 # add -log10 adjusted p-value to the results
 results["-logPadj"] = -np.log10(results["p_value"])
 
-# select columns to save
-cols = ['database', 'name', "highlighted", 'query', 'p_value', "-logPadj",
-         'Fold Enrichment', 'query_size', 'term_size','effective_domain_size',
-          'intersection_size', 'genes_intersection']
-
 # add a nicer fomatted version of up or down regulated query names
 if lfc_provided:
     results["Expression"] = results["query"].apply(
         lambda a: "Up-regulated" if a.split("_")[-1] == "UP"
               else "Down-regulated")
-    cols.append('Expression')
 
 # save the results to a csv file
+results.drop(columns={"intersections"}, inplace=True)
 results.to_csv(query_name + ".gprofiler.csv", index=False)
 
 # versions
