@@ -90,11 +90,20 @@ mouse_msig_dbs = (
 	'm3.mirdb, m5.go.bp, m5.go.cc, m5.go.mf, m7.all, mh.all'
 )
 
+# set test MSigDB gene sets for testing purposes
+human_test_msig_dbs = "c2.cp.reactome, c5.go.bp"
+mouse_test_msig_dbs = "m2.cp.reactome, m5.go.bp"
+
 if msig_dbs == "default":
     if organism == "mouse":
         msig_dbs = mouse_msig_dbs
     elif organism == "human":
         msig_dbs = human_msig_dbs
+elif msig_dbs == "test":
+    if organism == "mouse":
+        msig_dbs = mouse_test_msig_dbs
+    elif organism == "human":
+        msig_dbs = human_test_msig_dbs
 
 # convert the comma-separated string of gene set databases into a list
 msig_dbs = list(set([db.strip() for db in msig_dbs.strip().split(",")]))
@@ -131,6 +140,8 @@ if enrichr_dbs == "default":
         "Kinase_Perturbations_from_GEO_up, L1000_Kinase_and_GPCR_Perturbations_down,"
         "L1000_Kinase_and_GPCR_Perturbations_up"
     )
+elif enrichr_dbs == "test":
+    enrichr_dbs = "ChEA_2022, GeneSigDB"
 
 enrichr_dbs = list(set([db.strip() for db in enrichr_dbs.strip().split(",")]))
 
@@ -202,35 +213,53 @@ if de.duplicated(subset=id_column).any():
 rnk = de.set_index(id_column).sort_values(rank_column, ascending=ascending)[
     rank_column]
 
+# save the ranked gene list for potential future use
+rnk.to_csv(query_name + "_ranked_gene_list.rnk", sep="\\t", header=False)
+
 # run preranked GSEA for each gene set database
 gsea_results = []
 for lib_name, lib in library_dict.items():
-    for gn, gene_sets in lib.items():
-        pre_res = gp.prerank(rnk=rnk,
-                             gene_sets=gene_sets,
-                             threads=threads,
-                             min_size=min_size,
-                             max_size=max_size,
-                             permutation_num=permutation_num,
-                             outdir=None,
-                             verbose=True)
+    if len(lib) > 0:
+        for gn, gene_sets in lib.items():
+            if len(gene_sets) > 0:
+                pre_res = gp.prerank(rnk=rnk,
+                                    gene_sets=gene_sets,
+                                    threads=threads,
+                                    min_size=min_size,
+                                    max_size=max_size,
+                                    permutation_num=permutation_num,
+                                    outdir=None,
+                                    verbose=True)
 
-        res= pre_res.res2d.copy()
-        res["Source"] = lib_name
-        res["Library"] = gn
-        gsea_results.append(res)
+                res= pre_res.res2d.copy()
+                res["Source"] = lib_name
+                res["Library"] = gn
+                gsea_results.append(res)
 
-gsea_results = pd.concat(gsea_results, ignore_index=True)
-# add -log10 adjusted p-value and p-value to the results
-gsea_results["-logPadj"] = gsea_results["FDR q-val"].replace(
-    0, gsea_results["FDR q-val"].replace(0, np.nan).min()).astype(float)
-gsea_results["-logPadj"] = -np.log10(gsea_results["-logPadj"])
+if len(gsea_results) > 0:
+    gsea_results = pd.concat(gsea_results, ignore_index=True)
 
-gsea_results["-logP"] = gsea_results["NOM p-val"].replace(
-    0, gsea_results["NOM p-val"].replace(0, np.nan).min()).astype(float)
-gsea_results["-logP"] = -np.log10(gsea_results["-logP"])
-# add the query name to the results
-gsea_results["Query"] = query_name
+    # add -log10 adjusted p-value and p-value to the results
+    gsea_results["-logPadj"] = gsea_results["FDR q-val"].replace(
+        0, gsea_results["FDR q-val"].replace(0, np.nan).min()).astype(float)
+    gsea_results["-logPadj"] = -np.log10(gsea_results["-logPadj"])
+    gsea_results["-logP"] = gsea_results["NOM p-val"].replace(
+        0, gsea_results["NOM p-val"].replace(0, np.nan).min()).astype(float)
+    gsea_results["-logP"] = -np.log10(gsea_results["-logP"])
+
+    # add the query name to the results
+    gsea_results["Query"] = query_name
+
+    # add positive or negative enrichment info
+    gsea_results["Enrichment"] = gsea_results["NES"].apply(
+        lambda a: "Positive" if a > 0 else "Negative")
+
+    # save gsea results
+    gsea_results.to_csv(query_name + "_gsea_results.csv", index=False)
+
+else:
+    with open(query_name + "_gsea_results.csv", "w") as f:
+        pass
 
 #### ORA ANALYSIS WITH GSEAPY
 
@@ -265,37 +294,42 @@ background_genes = list(de[id_column])
 # run ORA for each gene set database
 enrich_results = []
 for lib_name, lib in library_dict.items():
-    for gn, gene_sets in lib.items():
-        for q, gene_list in q_dict.items():
-            enrich_res = gp.enrich( gene_list=gene_list,
-                     gene_sets=gene_sets,
-                     background=background_genes,
-                     no_plot=True,
-                     outdir=None,
-                     verbose=False)
+    if len(lib) > 0:
+        for gn, gene_sets in lib.items():
+            if len(gene_sets) > 0:
+                for q, gene_list in q_dict.items():
+                    enrich_res = gp.enrich( gene_list=gene_list,
+                            gene_sets=gene_sets,
+                            background=background_genes,
+                            no_plot=True,
+                            outdir=None,
+                        verbose=False)
 
-            res= enrich_res.results.copy()
-            res["Source"] = lib_name
-            res["Library"] = gn
-            res["Query"] = q
-            enrich_results.append(res)
+                res= enrich_res.results.copy()
+                res["Source"] = lib_name
+                res["Library"] = gn
+                res["Query"] = q
+                enrich_results.append(res)
 
-enrich_results = pd.concat(enrich_results, ignore_index=True)
+if len(enrich_results) > 0:
+    enrich_results = pd.concat(enrich_results, ignore_index=True)
 
-# add -log10 adjusted p-value to the results
-enrich_results["-logPadj"] = -np.log10(enrich_results["Adjusted P-value"])
-enrich_results["-logP"] = -np.log10(enrich_results["P-value"])
+    # add -log10 adjusted p-value to the results
+    enrich_results["-logPadj"] = -np.log10(enrich_results["Adjusted P-value"])
+    enrich_results["-logP"] = -np.log10(enrich_results["P-value"])
 
-# add a nicer fomatted version of up or down regulated query names
-if lfc_provided:
-    enrich_results["Expression"] = enrich_results["Query"].apply(
-        lambda a: "Up-regulated" if a.split("_")[-1] == "UP"
-              else "Down-regulated")
+    # add a nicer fomatted version of up or down regulated query names
+    if lfc_provided:
+        enrich_results["Expression"] = enrich_results["Query"].apply(
+            lambda a: "Up-regulated" if a.split("_")[-1] == "UP"
+                else "Down-regulated")
 
-# save results
-gsea_results.to_csv(query_name + "_gsea_results.csv", index=False)
-enrich_results.to_csv(query_name + "_enrich_results.csv", index=False)
-rnk.to_csv(query_name + "_ranked_gene_list.rnk", sep="\\t", header=False)
+    # save results
+    enrich_results.to_csv(query_name + "_enrich_results.csv", index=False)
+
+else:
+    with open(query_name + "_enrich_results.csv", "w") as f:
+        pass
 
 # versions
 
