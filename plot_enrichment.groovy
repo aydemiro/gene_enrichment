@@ -6,28 +6,31 @@ when: ((task.ext.when == null) || task.ext.when) && (enrichment_file != null && 
 script:
 
 plot_type = "dotplot" //* @dropdown @options:"dotplot,barplot" @description:"Type of plot to generate for enrichment results."
-x_column = "" //* @input @description:"Column name for the x-axis values." @title:"Input file settings"
+x_column = "" //* @input @description:"Column name for the x-axis values." @title:"Plot settings"
 y_column = "" //* @input @description:"Column name for the y-axis values."
-size_column = "" //* @input @description:"Column name for the size of points in a dotplot."
-min_point_size = 10 //* @input @description:"Minimum point size for dotplot."
-max_point_size = 200 //* @input @description:"Maximum point size for dotplot."
-split_columns = "" //* @input @description:"Comma-separated list of column names to split the input data by for plotting. Separate plots will be generated for each unique combination of values in these columns."
-plot_title_column = "" //* @input @description:"Column name to use for plot titles when split_columns is specified. If not provided, last column in split_columns will be used for plot titles."
-group_column = "" //* @input @description:"Column name for grouping variable to color bars or points by."
+
+split_columns = "" //* @input @description:"Comma-separated list of column names to split the input data by for plotting. Separate plots will be generated for each unique combination of values in these columns." @title:"Split/group settings"
+plot_title_column = "" //* @input @description:"Column name to use for plot titles when split_columns is not specified. This column must have a single unique value."
+group_column = "" //* @input @description:"Column name for grouping within the same plot. For example, up-regulated vs down-regulated."
 group_order = "" //* @input @description:"Comma-separated list of group names in the order they should appear in the plot. Only applicable if group_column is specified."
 group_colors = "" //* @input @description:"Comma-separated list of colors to use for each group. Only applicable if group_column is specified. If not provided, default colors will be used."
-hue_column = "" //* @input @description:"Column name for variable to color points by in dotplot. If group_column is also specified, group_column will be used for coloring and this variable will be ignored."
+
+hue_column = "" //* @input @description:"Column name for variable to color points by in dotplot. Used only if group_column is not specified."  @title:"Color settings"
 hue_order = "" //* @input @description:"Comma-separated list of hue variable values in the order they should appear in the plot. Only applicable if hue_column is specified."
 hue_values = "" //* @input @description:"Comma-separated list of colors to use for each hue variable value."
 palette = "" //* @input @description:"Name of matplotlib/seaborn color palette to use. Only applicable if group_column or hue_column is specified and group_colors or hue_values are not provided. Single color sequential palettes (Greys,Reds, Blues, Oranges, Greens, Purples) are recommended for quantitative hue columns, such as p-values or overlap %. See https://seaborn.pydata.org/tutorial/color_palettes.html for more details on available color palettes."
 single_color = "" //* @input @description:"Color to use for bars or points when group_column is not specified."
-sort_ascending = "no" //* @dropdown @options:"yes,no" @description:"Whether to sort the data in ascending order based on x_column for selecting top N results."
+
+sort_ascending = "no" //* @dropdown @options:"yes,no" @description:"Whether to sort the data in ascending order based on x_column for selecting top N results." @title:"Misc settings"
 top_n = 10 //* @input @description:"Number of top results to show in the plot. If group_column is specified, top N results will be selected for each group. Use -1 to show all results (maximum 50)."")"
 fig_size = "" //* @input @description:"Width and height of the plot in inches, separated by a comma (e.g. 5,7). If not provided, size will be calculated based on the number of data points."
 pvalue_column = "" //* @input @description:"Name of the p-value column if the input is to be filtered for a minimum p-value."
 pvalue_cutoff = 0.05 //* @input @description:"Minimum p-value to filter the input, only if pvalue_column is given."
 
-//* @style @multicolumn:{plot_type,x_column, y_column, size_column}, {group_column, group_order, group_colors, hue_column, hue_order, hue_values, palette, single_color},{sort_ascending, top_n, fig_size, pvalue_column, pvalue_cutoff}
+size_column = "" //* @input @description:"Column name for the size of points in a dotplot." @title:"Dot plot settings"
+min_point_size = 5 //* @input @description:"Minimum point size for dotplot."
+max_point_size = 15 //* @input @description:"Maximum point size for dotplot."
+//* @style @multicolumn: {plot_type, x_column, y_column}, {split_columns, plot_title_column, group_column, group_order, group_colors}, {hue_column, hue_order, hue_values, palette, single_color}, {sort_ascending, top_n, fig_size, pvalue_column, pvalue_cutoff}, {size_column, min_point_size, max_point_size}
 
 plot_type = task.ext.plot_type ?: plot_type
 x_column = task.ext.x_column ?: x_column
@@ -50,6 +53,8 @@ top_n = task.ext.top_n ?: top_n
 fig_size = task.ext.fig_size ?: fig_size
 pvalue_column = task.ext.pvalue_column ?: pvalue_column
 pvalue_cutoff = task.ext.pvalue_cutoff ?: pvalue_cutoff
+
+query_name = task.ext.query_name ?: query_name
 
 """
 !# /usr/bin/env python3
@@ -107,6 +112,8 @@ if fig_size:
     except Exception:
         raise ValueError(f"fig_size: {fig_size} must have two comma-separated values for width and height in inches.")
 query_name = "!{query_name}"
+query_name = "" if query_name.lower() in ["none", "na", "null", ""] else query_name
+
 enrichment_file = "!{enrichment_file}"
 
 # define a function to create enrichment plots
@@ -116,9 +123,6 @@ def enrichment_plot(input_df, x_column, y_column, plot_type,
                     hue_column=None, hue_order=None, hue_values=None,
                     palette=None, single_color=None, sort_ascending=False, top_n=10,
                     plot_title=None, fig_size=None):
-    """
-    Plot enrichment results as 'barplot' or 'dotplot'.
-    """
 
     # work on a copy of the input data to avoid modifying the caller's DataFrame
     df = input_df.copy()
@@ -263,12 +267,34 @@ def enrichment_plot(input_df, x_column, y_column, plot_type,
 # load enrichment results from file
 enrichment_results = pd.read_csv(enrichment_file)
 
-# split data by specified columns and generate a plot for each subset
-enrichment_results["temp_col"] = " "
-if split_columns:
-    plot_title_column = split_columns[-1]
+if query_name:
+    title_prefix = query_name
+    prefix = query_name + "_"
 else:
-    split_columns = ["temp_col"]
+    title_prefix = ""
+    prefix = ""
+
+if split_columns:
+    grouped = enrichment_results.groupby(split_columns, as_index=False)
+    for group_vals, group_data in grouped:
+        plot_title = [title_prefix] + [": ".join(gv) for gv in zip(split_columns, group_vals)]
+        plot_title = "\\n".join(plot_title)
+        split_vals = '_'.join([v.strip() for v in group_vals])
+        file_prefix = f"{prefix}{split_vals}"
+        fig, ax = enrichment_plot(
+            group_data, x_column, y_column, plot_type,
+            pvalue_column=pvalue_column, pvalue_cutoff=pvalue_cutoff,
+            size_column=size_column, dot_sizes=dot_sizes,
+            group_column=group_column, group_order=group_order, group_colors=group_colors,
+            hue_column=hue_column, hue_order=hue_order, hue_values=hue_values,
+            palette=palette, single_color=single_color, sort_ascending=sort_ascending,
+            top_n=top_n, plot_title=plot_title, fig_size=fig_size)
+        if isinstance(fig, list):
+            raise
+        if fig is not None:
+            fig.savefig(f"{file_prefix}_enrichment_{plot_type}.pdf", bbox_inches="tight")
+else:
+    group_data = enrichment_results
     if plot_title_column:
         if len(enrichment_results[plot_title_column].unique()) > 1:
             raise ValueError(
@@ -277,29 +303,20 @@ else:
             "specified, title column must have only one unique value to be used for"
             " plot titles.")
         else:
-            plot_title_column = "temp_col"
+            plot_title = enrichment_results[plot_title_column].iloc[0]
+    else:
+        plot_title = title_prefix
 
-grouped = enrichment_results.groupby(split_columns, as_index=False)
-for group_vals, group_data in grouped:
-    plot_title = query_name + "\\n" + group_data[plot_title_column].iloc[0]
-    split_vals = '_'.join([v.strip() for v in group_vals])
-    file_prefix = f"{query_name}_{split_vals}"
-    fig, ax = enrichment_plot(group_data, x_column, y_column, "dotplot",
-                            size_col=size_column, dot_sizes=dot_sizes,
-                            group_col=group_column,
-                            group_order=group_order, group_colors=group_colors,
-                            color=single_color, sort_ascending=sort_ascending,
-                            top_n=top_n, plot_title=plot_title)
-    fig.savefig(f"{file_prefix}_enrichment_dotplot.pdf", bbox_inches="tight")
-
-    fig, ax = enrichment_plot(group_data, x_column, y_column, "barplot",
-                            group_col=group_column, group_order=group_order,
-                            group_colors=group_colors, color=single_color,
-                            sort_ascending=sort_ascending, top_n=top_n,
-                            plot_title=plot_title)
-    fig.savefig(f"{file_prefix}_enrichment_barplot.pdf", bbox_inches="tight")
-
-
+    file_prefix = prefix
+    fig, ax = enrichment_plot(group_data, x_column, y_column, plot_type,
+                            pvalue_column=pvalue_column, pvalue_cutoff=pvalue_cutoff,
+                            size_column=size_column, dot_sizes=dot_sizes,
+                            group_column=group_column, group_order=group_order, group_colors=group_colors,
+                            hue_column=hue_column, hue_order=hue_order, hue_values=hue_values,
+                            palette=palette, single_color=single_color, sort_ascending=sort_ascending,
+                            top_n=top_n, plot_title=plot_title, fig_size=fig_size)
+    if fig is not None:
+        fig.savefig(f"{file_prefix}enrichment_{plot_type}.pdf", bbox_inches="tight")
 # versions
 
 versions = {"python": python_version(),
@@ -313,5 +330,5 @@ with open("versions.yml", "w") as outfile:
     for v in versions:
         outfile.write("\\t" + v + ": " + versions[v] + "\\n")
 
-subprocess.call(["cp", ".command.sh", query_name + ".${task.process}.command.sh"])
+subprocess.call(["cp", ".command.sh", prefix + "${task.process}.command.sh"])
 """
