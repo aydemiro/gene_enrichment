@@ -3,6 +3,7 @@ label "requests"
 when: ( task.ext.when == null ) || task.ext.when
 
 script:
+run_gprofiler = true //* @checkbox @description:"Run gene enrichment analysis using gprofiler."
 
 id_column = "" //* @input @description:"Name of the column containing gene IDs. Use 'index' if your table's first column is its index and it contains the gene IDs." @title:"Input file settings"
 pvalue_column = "" //* @input @description:"Name of the p-value column if the input gene set is to be filtered for a minimum p-value."
