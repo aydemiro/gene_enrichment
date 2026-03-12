@@ -30,7 +30,8 @@ pvalue_cutoff = 0.05 //* @input @description:"Minimum p-value to filter the inpu
 size_column = "" //* @input @description:"Column name for the size of points in a dotplot." @title:"Dot plot settings"
 min_point_size = 5 //* @input @description:"Minimum point size for dotplot."
 max_point_size = 15 //* @input @description:"Maximum point size for dotplot."
-//* @style @multicolumn: {plot_type, x_column, y_column}, {split_columns, plot_title_column, group_column, group_order, group_colors}, {hue_column, hue_order, hue_values, palette, single_color}, {sort_ascending, top_n, fig_size, pvalue_column, pvalue_cutoff}, {size_column, min_point_size, max_point_size}
+max_legends_decimals = 3 //* @input @description:"Maximum number of decimal places to show in legend labels for numeric variables."
+//* @style @multicolumn: {plot_type, x_column, y_column}, {split_columns, plot_title_column, group_column, group_order, group_colors}, {hue_column, hue_order, hue_values, palette, single_color}, {sort_ascending, top_n, fig_size, pvalue_column, pvalue_cutoff}, {size_column, min_point_size, max_point_size, max_legends_decimals}
 
 plot_type = task.ext.plot_type ?: plot_type
 x_column = task.ext.x_column ?: x_column
@@ -38,6 +39,7 @@ y_column = task.ext.y_column ?: y_column
 size_column = task.ext.size_column ?: size_column
 min_point_size = task.ext.min_point_size ?: min_point_size
 max_point_size = task.ext.max_point_size ?: max_point_size
+max_legends_decimals = task.ext.max_legends_decimals ?: max_legends_decimals
 split_columns = task.ext.split_columns ?: split_columns
 plot_title_column = task.ext.plot_title_column ?: plot_title_column
 group_column = task.ext.group_column ?: group_column
@@ -76,6 +78,7 @@ y_column = "${y_column}"
 size_column = "${size_column}" if "${size_column}" else None
 min_point_size = ${min_point_size}
 max_point_size = ${max_point_size}
+max_legends_decimals = ${max_legends_decimals}
 dot_sizes = (min_point_size, max_point_size)
 split_columns = [c.strip() for c in "${split_columns}".split(",") if c.strip()]
 plot_title_column = "${plot_title_column}"
@@ -218,6 +221,19 @@ def enrichment_plot(input_df, x_column, y_column, plot_type,
         ax.set_ylabel("")
         ax.set_title(plot_title)
 
+        # format legend decimal places for numeric values
+        for text in ax.legend_.get_texts():
+            text_value = text.get_text()
+            try:
+                text_value = int(text_value)
+            except ValueError:
+                try:
+                    text_value_num = float(text_value)
+                    if len(text_value.split(".")[-1]) > max_legends_decimals:
+                            text.set_text(f"{text_value_num:.{max_legends_decimals}f}")
+                except ValueError:
+                    continue
+
         try:
             # move legend using the axes object
             sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
@@ -248,6 +264,7 @@ def enrichment_plot(input_df, x_column, y_column, plot_type,
 
         ax.grid(visible=False, axis="x")
         ax.grid(visible=True, axis="y")
+        ax.set_ylabel("")
         ax.set_title(plot_title)
         ax.set_ymargin(1/top_data.shape[0])
 
@@ -255,6 +272,18 @@ def enrichment_plot(input_df, x_column, y_column, plot_type,
             fig.set_size_inches(5, min(15, top_data.shape[0] / 3))
 
         if fig.legends:
+            # format decimals in legend
+            for text in fig.legends[0].get_texts():
+                text_value = text.get_text()
+                try:
+                    text_value = int(text_value)
+                except ValueError:
+                    try:
+                        text_value_num = float(text_value)
+                        if len(text_value.split(".")[-1]) > max_legends_decimals:
+                            text.set_text(f"{text_value_num:.{max_legends_decimals}f}")
+                    except ValueError:
+                        continue
             fig.legends[0].set_loc("upper left")
             fig.legends[0].set_bbox_to_anchor(
                 (1, 1), transform=ax.transAxes)
