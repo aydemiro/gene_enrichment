@@ -254,6 +254,15 @@ if len(gsea_results) > 0:
     gsea_results["Enrichment"] = gsea_results["NES"].apply(
         lambda a: "Positive" if a > 0 else "Negative")
 
+    # process tag% column to get set size and other useful values
+    gsea_results[["Overlap Size", "Term Size"]] = gsea_results["Tag %"].apply(
+        lambda a: pd.Series(map(int, a.split("/"))))
+    gsea_results["Overlap %"] = round(
+        gsea_results["Overlap Size"] / gsea_results["Term Size"] * 100, 1)
+
+    # convert gene % values to numbers
+    gsea_results["Gene %"] = gsea_results["Gene %"].apply(
+        lambda a: round(float(a.replace("%", "")), 1))
     # save gsea results
     gsea_results.to_csv(query_name + "_gsea_results.csv", index=False)
 
@@ -323,6 +332,12 @@ if len(enrich_results) > 0:
         enrich_results["Expression"] = enrich_results["Query"].apply(
             lambda a: "Up-regulated" if a.split("_")[-1] == "UP"
                 else "Down-regulated")
+
+    # process overlap column to get set size and other useful values
+        enrich_results[["Overlap Size", "Term Size"]] = enrich_results["Overlap"].apply(
+            lambda a: pd.Series(map(int, a.split("/"))))
+        enrich_results["Overlap %"] = round(
+            enrich_results["Overlap Size"] / enrich_results["Term Size"] * 100, 1)
 
     # save results
     enrich_results.to_csv(query_name + "_enrich_results.csv", index=False)

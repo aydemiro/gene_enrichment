@@ -57,7 +57,7 @@ pvalue_cutoff = task.ext.pvalue_cutoff ?: pvalue_cutoff
 query_name = task.ext.query_name ?: query_name
 
 """
-!# /usr/bin/env python3
+#! /usr/bin/env python3
 import matplotlib.pyplot as plt # type: ignore
 import seaborn as sns
 from seaborn import axes_style
@@ -70,40 +70,40 @@ import subprocess
 from platform import python_version
 
 # convert nextflow parameters to python variables
-plot_type = "!{plot_type}"
-x_column = "!{x_column}"
-y_column = "!{y_column}"
-size_column = "!{size_column}" if "!{size_column}" else None
-min_point_size = !{min_point_size}
-max_point_size = !{max_point_size}
+plot_type = "${plot_type}"
+x_column = "${x_column}"
+y_column = "${y_column}"
+size_column = "${size_column}" if "${size_column}" else None
+min_point_size = ${min_point_size}
+max_point_size = ${max_point_size}
 dot_sizes = (min_point_size, max_point_size)
-split_columns = [c.strip() for c in "!{split_columns}".split(",") if c.strip()]
-plot_title_column = "!{plot_title_column}"
-group_column = "!{group_column}" if "!{group_column}" else None
-group_order = [g.strip() for g in "!{group_order}".split(",") if g.strip()]
+split_columns = [c.strip() for c in "${split_columns}".split(",") if c.strip()]
+plot_title_column = "${plot_title_column}"
+group_column = "${group_column}" if "${group_column}" else None
+group_order = [g.strip() for g in "${group_order}".split(",") if g.strip()]
 if not group_order:
     group_order = None
-group_colors = [c.strip() for c in "!{group_colors}".split(",") if c.strip()]
+group_colors = [c.strip() for c in "${group_colors}".split(",") if c.strip()]
 if not group_colors:
     group_colors = None
 
-hue_column = "!{hue_column}" if "!{hue_column}" else None
-hue_order = [h.strip() for h in "!{hue_order}".split(",") if h.strip()]
+hue_column = "${hue_column}" if "${hue_column}" else None
+hue_order = [h.strip() for h in "${hue_order}".split(",") if h.strip()]
 if not hue_order:
     hue_order = None
-hue_values = [c.strip() for c in "!{hue_values}".split(",") if c.strip()]
+hue_values = [c.strip() for c in "${hue_values}".split(",") if c.strip()]
 if not hue_values:
     hue_values = None
 
-palette = "!{palette}" if "!{palette}" else None
-single_color = "!{single_color}" if "!{single_color}" else None
-sort_ascending = "!{sort_ascending}".lower() == "yes"
-top_n = int(!{top_n})
+palette = "${palette}" if "${palette}" else None
+single_color = "${single_color}" if "${single_color}" else None
+sort_ascending = "${sort_ascending}".lower() == "yes"
+top_n = int(${top_n})
 if top_n == -1:
     top_n = None
-pvalue_column = "!{pvalue_column}" if "!{pvalue_column}" else None
-pvalue_cutoff = !{pvalue_cutoff}
-fig_size = "!{fig_size}" if "!{fig_size}" else None
+pvalue_column = "${pvalue_column}" if "${pvalue_column}" else None
+pvalue_cutoff = ${pvalue_cutoff}
+fig_size = "${fig_size}" if "${fig_size}" else None
 if fig_size:
     try:
         fig_size = [float(c.strip()) for c in fig_size.split(",") if c.strip()]
@@ -111,10 +111,10 @@ if fig_size:
             raise ValueError("fig_size must have two comma-separated values for width and height in inches.")
     except Exception:
         raise ValueError(f"fig_size: {fig_size} must have two comma-separated values for width and height in inches.")
-query_name = "!{query_name}"
+query_name = "${query_name}"
 query_name = "" if query_name.lower() in ["none", "na", "null", ""] else query_name
 
-enrichment_file = "!{enrichment_file}"
+enrichment_file = "${enrichment_file}"
 
 # define a function to create enrichment plots
 def enrichment_plot(input_df, x_column, y_column, plot_type,
@@ -151,9 +151,9 @@ def enrichment_plot(input_df, x_column, y_column, plot_type,
 
         top_data = (
             sig_results
-            .groupby(group_column)
+            .groupby(group_column, as_index=False)
             .apply(lambda a: a.sort_values(x_column, ascending=sort_ascending).head(top_n))
-            .reset_index()
+            .reset_index(drop=True)
         )
 
         # sort by group and x_column if group order is specified
