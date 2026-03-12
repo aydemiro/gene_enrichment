@@ -1,6 +1,7 @@
 label "gseapy"
-
-when: (task.ext.when == null) || task.ext.when
+label "memory_medium"
+label "process_medium"
+when:((task.ext.when == null) || task.ext.when) && (de_file != null && de_file.size() > 0)
 
 script:
 

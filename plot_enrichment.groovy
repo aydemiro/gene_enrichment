@@ -18,7 +18,8 @@ group_colors = "" //* @input @description:"Comma-separated list of colors to use
 hue_column = "" //* @input @description:"Column name for variable to color points by in dotplot. Used only if group_column is not specified."  @title:"Color settings"
 hue_order = "" //* @input @description:"Comma-separated list of hue variable values in the order they should appear in the plot. Only applicable if hue_column is specified."
 hue_values = "" //* @input @description:"Comma-separated list of colors to use for each hue variable value."
-palette = "" //* @input @description:"Name of matplotlib/seaborn color palette to use. Only applicable if group_column or hue_column is specified and group_colors or hue_values are not provided. Single color sequential palettes (Greys,Reds, Blues, Oranges, Greens, Purples) are recommended for quantitative hue columns, such as p-values or overlap %. See https://seaborn.pydata.org/tutorial/color_palettes.html for more details on available color palettes."
+categorical_palette = "deep" //* @input @description:"Name of matplotlib/seaborn color palette to use when hue_column is not numerical. See https://seaborn.pydata.org/tutorial/color_palettes.html for more details on available color palettes."
+quantitative_palette = "light:red" //* @input @description:"Name of matplotlib/seaborn color palette to use when hue_column is numerical. See https://seaborn.pydata.org/tutorial/color_palettes.html for more details on available color palettes."
 single_color = "" //* @input @description:"Color to use for bars or points when group_column is not specified."
 
 sort_ascending = "no" //* @dropdown @options:"yes,no" @description:"Whether to sort the data in ascending order based on x_column for selecting top N results." @title:"Misc settings"
@@ -31,7 +32,7 @@ size_column = "" //* @input @description:"Column name for the size of points in 
 min_point_size = 5 //* @input @description:"Minimum point size for dotplot."
 max_point_size = 15 //* @input @description:"Maximum point size for dotplot."
 max_legends_decimals = 3 //* @input @description:"Maximum number of decimal places to show in legend labels for numeric variables."
-//* @style @multicolumn: {plot_type, x_column, y_column}, {split_columns, plot_title_column, group_column, group_order, group_colors}, {hue_column, hue_order, hue_values, palette, single_color}, {sort_ascending, top_n, fig_size, pvalue_column, pvalue_cutoff}, {size_column, min_point_size, max_point_size, max_legends_decimals}
+//* @style @multicolumn: {plot_type, x_column, y_column}, {split_columns, plot_title_column, group_column, group_order, group_colors}, {hue_column, hue_order, hue_values, categorical_palette, quantitative_palette, single_color}, {sort_ascending, top_n, fig_size, pvalue_column, pvalue_cutoff}, {size_column, min_point_size, max_point_size, max_legends_decimals}
 
 plot_type = task.ext.plot_type ?: plot_type
 x_column = task.ext.x_column ?: x_column
@@ -48,7 +49,8 @@ group_colors = task.ext.group_colors ?: group_colors
 hue_column = task.ext.hue_column ?: hue_column
 hue_order = task.ext.hue_order ?: hue_order
 hue_values = task.ext.hue_values ?: hue_values
-palette = task.ext.palette ?: palette
+categorical_palette = task.ext.categorical_palette ?: categorical_palette
+quantitative_palette = task.ext.quantitative_palette ?: quantitative_palette
 single_color = task.ext.single_color ?: single_color
 sort_ascending = task.ext.sort_ascending ?: sort_ascending
 top_n = task.ext.top_n ?: top_n
@@ -98,7 +100,8 @@ hue_values = [c.strip() for c in "${hue_values}".split(",") if c.strip()]
 if not hue_values:
     hue_values = None
 
-palette = "${palette}" if "${palette}" else None
+categorical_palette = "${categorical_palette}" if "${categorical_palette}" else None
+quantitative_palette = "${quantitative_palette}" if "${quantitative_palette}" else None
 single_color = "${single_color}" if "${single_color}" else None
 sort_ascending = "${sort_ascending}".lower() == "yes"
 top_n = int(${top_n})
@@ -171,24 +174,29 @@ def enrichment_plot(input_df, x_column, y_column, plot_type,
             if group_colors is not None:
                 if len(group_colors) != len(group_order):
                     raise ValueError("Length of group_colors must match length of group_order")
-                palette = dict(zip(group_order, group_colors))
+                categorical_palette = dict(zip(group_order, group_colors))
 
         hue_column = group_column
         hue_order = group_order
+        palette = categorical_palette
 
     else:
         top_data = sig_results.sort_values(
             x_column, ascending=sort_ascending).head(top_n).reset_index(drop=True)
         if hue_column is not None:
             if hue_column not in sig_results.columns:
-                raise KeyError(f"group_column '{group_column}' not found in enrichment_results")
+                raise KeyError(f"hue_column '{hue_column}' not found in enrichment_results")
             # create color palette if hue values are specified
             if hue_order is not None and hue_values is not None:
                 if len(hue_order) != len(hue_values):
                     raise ValueError("Length of hue_order must match length of hue_values")
-                palette = dict(zip(hue_order, hue_values))
+                categorical_palette = dict(zip(hue_order, hue_values))
+                palette = categorical_palette
             elif is_numeric_dtype(top_data[hue_column]):
+                palette = quantitative_palette
                 nominal_color = len(top_data[hue_column].unique()) < 2
+            else:
+                palette = categorical_palette
 
     if top_data.empty:
         return None, None
