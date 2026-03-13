@@ -308,59 +308,58 @@ enrichment_results = pd.read_csv(enrichment_file)
 
 if query_name:
     title_prefix = query_name
-    prefix = query_name + "_"
+    file_prefix = (query_name + ".").replace(" ", "_")
 else:
     title_prefix = ""
-    prefix = ""
+    file_prefix = ""
 
-if split_columns:
-    grouped = enrichment_results.groupby(split_columns, as_index=False)
-    for group_vals, group_data in grouped:
-        plot_title = [title_prefix] + [": ".join(gv) for gv in zip(split_columns, group_vals)]
-        plot_title = "\\n".join(plot_title)
-        split_vals = '_'.join([v.strip() for v in group_vals])
-        file_prefix = f"{prefix}{split_vals}"
-        file_prefix = file_prefix.replace(" ", "_")
-        fig, ax = enrichment_plot(
-            group_data, x_column, y_column, plot_type,
-            pvalue_column=pvalue_column, pvalue_cutoff=pvalue_cutoff,
-            size_column=size_column, dot_sizes=dot_sizes,
-            group_column=group_column, group_order=group_order, group_colors=group_colors,
-            hue_column=hue_column, hue_order=hue_order, hue_values=hue_values,
-            categorical_palette=categorical_palette,
-            quantitative_palette=quantitative_palette,
-            single_color=single_color, sort_ascending=sort_ascending,
-            top_n=top_n, plot_title=plot_title, fig_size=fig_size)
-        if isinstance(fig, list):
-            raise
-        if fig is not None:
-            fig.savefig(f"{file_prefix}_enrichment_{plot_type}.pdf", bbox_inches="tight")
-else:
-    group_data = enrichment_results
-    if plot_title_column:
-        if len(enrichment_results[plot_title_column].unique()) > 1:
-            raise ValueError(
-            f"Error: plot_title_column '{plot_title_column}' has multiple unique "
-            "values but split_columns is not specified. When split_columns is not "
-            "specified, title column must have only one unique value to be used for"
-            " plot titles.")
-        else:
-            plot_title = enrichment_results[plot_title_column].iloc[0]
+with PdfPages(f"{file_prefix}enrichment_{plot_type}.pdf") as pdf:
+    if split_columns:
+        grouped = enrichment_results.groupby(split_columns, as_index=False)
+        for group_vals, group_data in grouped:
+            plot_title = [title_prefix] + [": ".join(gv) for gv in zip(split_columns, group_vals)]
+            plot_title = "\\n".join(plot_title)
+            split_vals = '_'.join([v.strip() for v in group_vals])
+            fig, ax = enrichment_plot(
+                group_data, x_column, y_column, plot_type,
+                pvalue_column=pvalue_column, pvalue_cutoff=pvalue_cutoff,
+                size_column=size_column, dot_sizes=dot_sizes,
+                group_column=group_column, group_order=group_order, group_colors=group_colors,
+                hue_column=hue_column, hue_order=hue_order, hue_values=hue_values,
+                categorical_palette=categorical_palette,
+                quantitative_palette=quantitative_palette,
+                single_color=single_color, sort_ascending=sort_ascending,
+                top_n=top_n, plot_title=plot_title, fig_size=fig_size)
+            if isinstance(fig, list):
+                raise
+            if fig is not None:
+                pdf.savefig(bbox_inches="tight")
     else:
-        plot_title = title_prefix
+        group_data = enrichment_results
+        if plot_title_column:
+            if len(enrichment_results[plot_title_column].unique()) > 1:
+                raise ValueError(
+                f"Error: plot_title_column '{plot_title_column}' has multiple unique "
+                "values but split_columns is not specified. When split_columns is not "
+                "specified, title column must have only one unique value to be used for"
+                " plot titles.")
+            else:
+                plot_title = enrichment_results[plot_title_column].iloc[0]
+        else:
+            plot_title = title_prefix
+    
+        fig, ax = enrichment_plot(group_data, x_column, y_column, plot_type,
+                                pvalue_column=pvalue_column, pvalue_cutoff=pvalue_cutoff,
+                                size_column=size_column, dot_sizes=dot_sizes,
+                                group_column=group_column, group_order=group_order, group_colors=group_colors,
+                                hue_column=hue_column, hue_order=hue_order, hue_values=hue_values,
+                                categorical_palette=categorical_palette,
+                                quantitative_palette=quantitative_palette,
+                                single_color=single_color, sort_ascending=sort_ascending,
+                                top_n=top_n, plot_title=plot_title, fig_size=fig_size)
+        if fig is not None:
+            pdf.savefig(bbox_inches="tight")
 
-    file_prefix = prefix.replace(" ", "_")
-    fig, ax = enrichment_plot(group_data, x_column, y_column, plot_type,
-                            pvalue_column=pvalue_column, pvalue_cutoff=pvalue_cutoff,
-                            size_column=size_column, dot_sizes=dot_sizes,
-                            group_column=group_column, group_order=group_order, group_colors=group_colors,
-                            hue_column=hue_column, hue_order=hue_order, hue_values=hue_values,
-                            categorical_palette=categorical_palette,
-                            quantitative_palette=quantitative_palette,
-                            single_color=single_color, sort_ascending=sort_ascending,
-                            top_n=top_n, plot_title=plot_title, fig_size=fig_size)
-    if fig is not None:
-        fig.savefig(f"{file_prefix}enrichment_{plot_type}.pdf", bbox_inches="tight")
 # versions
 
 versions = {"python": python_version(),
