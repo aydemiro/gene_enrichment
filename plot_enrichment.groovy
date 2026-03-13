@@ -1,3 +1,4 @@
+container "quay.io/biocontainers/seaborn:0.13.2"
 
 label "seaborn"
 
@@ -19,11 +20,11 @@ hue_column = "" //* @input @description:"Column name for variable to color point
 hue_order = "" //* @input @description:"Comma-separated list of hue variable values in the order they should appear in the plot. Only applicable if hue_column is specified."
 hue_values = "" //* @input @description:"Comma-separated list of colors to use for each hue variable value."
 categorical_palette = "deep" //* @input @description:"Name of matplotlib/seaborn color palette to use when hue_column is not numerical. See https://seaborn.pydata.org/tutorial/color_palettes.html for more details on available color palettes."
-quantitative_palette = "light:red" //* @input @description:"Name of matplotlib/seaborn color palette to use when hue_column is numerical. See https://seaborn.pydata.org/tutorial/color_palettes.html for more details on available color palettes."
+quantitative_palette = "crest" //* @input @description:"Name of matplotlib/seaborn color palette to use when hue_column is numerical. See https://seaborn.pydata.org/tutorial/color_palettes.html for more details on available color palettes."
 single_color = "" //* @input @description:"Color to use for bars or points when group_column is not specified."
 
 sort_ascending = "no" //* @dropdown @options:"yes,no" @description:"Whether to sort the data in ascending order based on x_column for selecting top N results." @title:"Misc settings"
-top_n = 10 //* @input @description:"Number of top results to show in the plot. If group_column is specified, top N results will be selected for each group. Use -1 to show all results (maximum 50)."")"
+top_n = 20 //* @input @description:"Number of top results to show in the plot. If group_column is specified, top N results will be selected for each group. Use -1 to show all results (maximum 50)."")"
 fig_size = "" //* @input @description:"Width and height of the plot in inches, separated by a comma (e.g. 5,7). If not provided, size will be calculated based on the number of data points."
 pvalue_column = "" //* @input @description:"Name of the p-value column if the input is to be filtered for a minimum p-value."
 pvalue_cutoff = 0.05 //* @input @description:"Minimum p-value to filter the input, only if pvalue_column is given."
@@ -127,7 +128,8 @@ def enrichment_plot(input_df, x_column, y_column, plot_type,
                     pvalue_column=None, pvalue_cutoff=None, size_column=None, dot_sizes=(5, 20),
                     group_column=None, group_order=None, group_colors=None,
                     hue_column=None, hue_order=None, hue_values=None,
-                    palette=None, single_color=None, sort_ascending=False, top_n=10,
+                    categorical_palette=None, quantitative_palette=None, 
+                    single_color=None, sort_ascending=False, top_n=10,
                     plot_title=None, fig_size=None):
 
     # work on a copy of the input data to avoid modifying the caller's DataFrame
@@ -318,13 +320,16 @@ if split_columns:
         plot_title = "\\n".join(plot_title)
         split_vals = '_'.join([v.strip() for v in group_vals])
         file_prefix = f"{prefix}{split_vals}"
+        file_prefix = file_prefix.replace(" ", "_")
         fig, ax = enrichment_plot(
             group_data, x_column, y_column, plot_type,
             pvalue_column=pvalue_column, pvalue_cutoff=pvalue_cutoff,
             size_column=size_column, dot_sizes=dot_sizes,
             group_column=group_column, group_order=group_order, group_colors=group_colors,
             hue_column=hue_column, hue_order=hue_order, hue_values=hue_values,
-            palette=palette, single_color=single_color, sort_ascending=sort_ascending,
+            categorical_palette=categorical_palette,
+            quantitative_palette=quantitative_palette,
+            single_color=single_color, sort_ascending=sort_ascending,
             top_n=top_n, plot_title=plot_title, fig_size=fig_size)
         if isinstance(fig, list):
             raise
@@ -344,13 +349,15 @@ else:
     else:
         plot_title = title_prefix
 
-    file_prefix = prefix
+    file_prefix = prefix.replace(" ", "_")
     fig, ax = enrichment_plot(group_data, x_column, y_column, plot_type,
                             pvalue_column=pvalue_column, pvalue_cutoff=pvalue_cutoff,
                             size_column=size_column, dot_sizes=dot_sizes,
                             group_column=group_column, group_order=group_order, group_colors=group_colors,
                             hue_column=hue_column, hue_order=hue_order, hue_values=hue_values,
-                            palette=palette, single_color=single_color, sort_ascending=sort_ascending,
+                            categorical_palette=categorical_palette,
+                            quantitative_palette=quantitative_palette,
+                            single_color=single_color, sort_ascending=sort_ascending,
                             top_n=top_n, plot_title=plot_title, fig_size=fig_size)
     if fig is not None:
         fig.savefig(f"{file_prefix}enrichment_{plot_type}.pdf", bbox_inches="tight")

@@ -1,6 +1,9 @@
+container "quay.io/biocontainers/gseapy:1.1.11--py311h5e00ca1_1"
+
 label "gseapy"
 label "memory_medium"
 label "process_medium"
+
 when:((task.ext.when == null) || task.ext.when) && (de_file != null && de_file.size() > 0)
 
 script:
@@ -15,7 +18,7 @@ lfc_column = "" //* @input @description:"Name of the fold change column if the i
 lfc_cutoff = 0.0 //* @input @description:"Minimum log fold change to filter the input gene set, only if lfc_column is given."
 rank_column = "stat" //* @input @description:"Name of the column to rank genes by for GSEA. Can be a statistic like t-statistic or log fold change. The column values should be numeric."
 ascending = "no" //* @dropdown @options:"yes,no" @description:"Whether to rank genes in ascending order or not."
-organism = "human" //* @dropdown @options:"mouse,human,yeast,worm,fly,fish" @description:"Organism name. Limited support for yeast, worm, fly and fish."
+organism = "" //* @dropdown @options:"mouse,human,yeast,worm,fly,fish" @description:"Organism name. Limited support for yeast, worm, fly and fish."
 msigdb_version = "default" //* @input @description:"Version of the MSigDB gene sets to use. Default is 2026.1.Mm for mouse and 2026.1.Hs for human."
 msig_dbs = "default" //* @input @description:"Comma-separated list of MSigDB gene set databases to use. Default is a set of selected databases for mouse and human. See pipeline documentation for options."
 enrichr_dbs = "default" //* @input @description:"Comma-separated list of Enrichr gene set libraries to use. Default is a set of selected libraries. See https://maayanlab.cloud/Enrichr/#libraries for options."
@@ -135,14 +138,14 @@ for db_name in msig_dbs:
 if enrichr_dbs == "default":
     enrichr_dbs = (
         "ARCHS4_Kinases_Coexp, ARCHS4_TFs_Coexp, ChEA_2022, "
-        "DepMap_CRISPR_GeneDependency_CellLines_2023, GeneSigDB, Panther_2016, "
+        "DepMap_CRISPR_GeneDependency_CellLines_2023, Panther_2016, "
         "HMDB_Metabolites, JASPAR_PWM_Human_2025, TRANSFAC_and_JASPAR_PWMs,"
         "TargetScan_microRNA_2017, Kinase_Perturbations_from_GEO_down, "
         "Kinase_Perturbations_from_GEO_up, L1000_Kinase_and_GPCR_Perturbations_down,"
         "L1000_Kinase_and_GPCR_Perturbations_up"
     )
 elif enrichr_dbs == "test":
-    enrichr_dbs = "ChEA_2022, GeneSigDB"
+    enrichr_dbs = "ChEA_2022, Panther_2016"
 
 enrichr_dbs = list(set([db.strip() for db in enrichr_dbs.strip().split(",")]))
 
@@ -361,4 +364,6 @@ with open("versions.yml", "w") as outfile:
     	outfile.write("\\t" + v + ": " + versions[v] + "\\n")
 
 subprocess.call(["cp", ".command.sh", query_name + ".${task.process}.command.sh"])
+subprocess.call(["cp", ".command.err", query_name + ".gseapy.log"])
+
 """

@@ -1,3 +1,5 @@
+container "quay.io/umassbio/requests:2.31.0--0"
+
 label "requests"
 
 when: ( task.ext.when == null ) || task.ext.when
