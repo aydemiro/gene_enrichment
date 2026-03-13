@@ -59,11 +59,13 @@ fig_size = task.ext.fig_size ?: fig_size
 pvalue_column = task.ext.pvalue_column ?: pvalue_column
 pvalue_cutoff = task.ext.pvalue_cutoff ?: pvalue_cutoff
 
+query_name = enrichment_file.simpleName
 query_name = task.ext.query_name ?: query_name
 
 """
 #! /usr/bin/env python3
 import matplotlib.pyplot as plt # type: ignore
+from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sns
 from seaborn import axes_style
 import seaborn.objects as so
@@ -347,7 +349,7 @@ with PdfPages(f"{file_prefix}enrichment_{plot_type}.pdf") as pdf:
                 plot_title = enrichment_results[plot_title_column].iloc[0]
         else:
             plot_title = title_prefix
-    
+
         fig, ax = enrichment_plot(group_data, x_column, y_column, plot_type,
                                 pvalue_column=pvalue_column, pvalue_cutoff=pvalue_cutoff,
                                 size_column=size_column, dot_sizes=dot_sizes,
@@ -373,5 +375,5 @@ with open("versions.yml", "w") as outfile:
     for v in versions:
         outfile.write("\\t" + v + ": " + versions[v] + "\\n")
 
-subprocess.call(["cp", ".command.sh", prefix + "${task.process}.command.sh"])
+subprocess.call(["cp", ".command.sh", file_prefix + "${task.process}.command.sh"])
 """
