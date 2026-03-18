@@ -66,12 +66,12 @@ exclude_iea = "${exclude_iea}"
 
 # read the DE results file
 if id_column == "index":
-	de = pd.read_csv(de_file, index_col=0)
-	de.index.name = "gene"
-	de.reset_index(inplace=True)
-	id_column = "gene"
+    de = pd.read_csv(de_file, index_col=0)
+    de.index.name = "gene"
+    de.reset_index(inplace=True)
+    id_column = "gene"
 else:
-	de = pd.read_csv(de_file)
+    de = pd.read_csv(de_file)
 
 # check and handle duplicated gene ids
 if de.duplicated(subset=id_column).any():
@@ -94,142 +94,161 @@ if pvalue_column not in ("", "NA", "na"):
     sig_df = de.loc[sig_mask].copy()
 else:
     sig_df = de.copy()
-    
-if lfc_column not in ("", "NA", "na"):
-    up_mask = de[lfc_column] >= lfc_cutoff
-    down_mask = de[lfc_column] <= lfc_cutoff
-    up_genes = list(sig_df.loc[up_mask, id_column])
-    down_genes = list(sig_df.loc[down_mask, id_column])
-    lfc_provided = True
+
+results_filename = query_name + "_gprofiler_results.csv"
+versions_dict = {}
+
+# create empty results file if no significant genes are found after filtering
+if sig_df.empty:
+    with open(results_filename, "w") as f:
+        pass
 else:
-    lfc_provided = False
-    sig_genes = list(sig_df[id_column])
+    if lfc_column not in ("", "NA", "na"):
+        up_mask = de[lfc_column] >= lfc_cutoff
+        down_mask = de[lfc_column] <= lfc_cutoff
+        up_genes = list(sig_df.loc[up_mask, id_column])
+        down_genes = list(sig_df.loc[down_mask, id_column])
+        lfc_provided = True
+    else:
+        lfc_provided = False
+        sig_genes = list(sig_df[id_column])
 
-# create query dictionaries
-if not lfc_provided:
-    q_dict = {query_name: sig_genes}
-else:
-    q_dict = {query_name + "_UP": up_genes,
-              query_name + "_DN": down_genes}
+    # create query dictionaries
+    if not lfc_provided:
+        q_dict = {query_name: sig_genes}
+    else:
+        q_dict = {}
+        if up_genes:
+            q_dict[query_name + "_UP"] = up_genes
+        if down_genes:
+            q_dict[query_name + "_DN"] = down_genes
 
-# get all genes as background if universe is not provided
-if universe == "no":
-    stats_domain = "custom_" + stats_domain
-    background_genes = list(de[id_column])
-else:
-    background_genes = None
-    
-# create the payload for g:Profiler API
-query_dict = {'organism': organism,
-              'query': q_dict,
-              "background": background_genes,
-              'sources' :[],
-              'domain_scope': stats_domain,
-              "highlight": significant_only == "yes",
-              "all_results": significant_only != "yes",
-              "user_threshold": padj_cutoff,
-              "significance_threshold_method": padj_method,
-              "no_iea": exclude_iea == "yes",
-              "no_evidences": False}
+    # get all genes as background if universe is not provided
+    if universe == "no":
+        stats_domain = "custom_" + stats_domain
+        background_genes = list(de[id_column])
+    else:
+        background_genes = None
+        
+    # create the payload for g:Profiler API
+    query_dict = {'organism': organism,
+                'query': q_dict,
+                "background": background_genes,
+                'sources' :[],
+                'domain_scope': stats_domain,
+                "highlight": significant_only == "yes",
+                "all_results": significant_only != "yes",
+                "user_threshold": padj_cutoff,
+                "significance_threshold_method": padj_method,
+                "no_iea": exclude_iea == "yes",
+                "no_evidences": False}
 
-# send the request to g:Profiler API
-r = requests.post(
-    url='https://biit.cs.ut.ee/gprofiler/api/gost/profile/',
-    json=query_dict,
-    headers={'User-Agent':'FullPythonRequest'}
-)    
+    # send the request to g:Profiler API
+    r = requests.post(
+        url='https://biit.cs.ut.ee/gprofiler/api/gost/profile/',
+        json=query_dict,
+        headers={'User-Agent':'FullPythonRequest'}
+    )    
 
-# check the response status
-if not r.ok:
-    msg= (("API request failed with status code: {}. "
-           "Message from the gprofiler server was: {}")).format(r.status_code, r.text)
-    raise Exception(msg)
+    # check the response status
+    if not r.ok:
+        msg= (("API request failed with status code: {}. "
+            "Message from the gprofiler server was: {}")).format(r.status_code, r.text)
+        raise Exception(msg)
 
-# get the results as a dataframe
-res = r.json()
-results = pd.DataFrame.from_records(res["result"])
+    # get the results as a dataframe
+    res = r.json()
+    results = pd.DataFrame.from_records(res["result"])
 
-# get the metadata for the query
-meta = res["meta"]
+    if results.empty:
+        with open(results_filename, "w") as f:
+            pass
+    else:
 
-# create ensemble gene id to gene name mapping for queries
-for qry, qry_dict in meta["genes_metadata"]["query"].items():
-    ens = qry_dict["ensgs"]
-    qry_dict["ensgs_array"] = np.array(ens)
-    qry_dict["ensgs_to_gene"] = {}
-    gene_to_ens = qry_dict["mapping"]
-    for gene_name, ensembl_list in gene_to_ens.items():
-        for ens_id in ensembl_list:
-            try:
-               qry_dict["ensgs_to_gene"][ens_id].update([gene_name])
-            except KeyError:
-                qry_dict["ensgs_to_gene"][ens_id] = set([gene_name])
+        # get the metadata for the query
+        meta = res["meta"]
+        versions_dict["gprofiler_api"] = meta["version"]
+        versions_dict["gprofiler_timestamp"] = meta["timestamp"]
 
-# define a function to convert ensembl gene ids to gene names in the results
-def get_intersection_genes(row):
-    q = row["query"]
-    # get ensembl IDs of all genes in query
-    ens_array = meta["genes_metadata"]["query"][q]["ensgs_array"]
-    # get indexes of genes that are intersecting the term
-    ind = np.array([(len(i) > 0) for i in row["intersections"]])
-    # get ensembl IDs of genes in the intersection
-    ens = ens_array[ind]
-    # get ensembl to gene mapping for query
-    mapping_dict = meta["genes_metadata"]["query"][q]["ensgs_to_gene"]
-    # create a set to add gene ids matching the ensembl IDs in the intersection
-    genes = set()
-    for e in ens:
-        genes.update(mapping_dict[e])
-    return genes
+        # create ensemble gene id to gene name mapping for queries
+        for qry, qry_dict in meta["genes_metadata"]["query"].items():
+            ens = qry_dict["ensgs"]
+            qry_dict["ensgs_array"] = np.array(ens)
+            qry_dict["ensgs_to_gene"] = {}
+            gene_to_ens = qry_dict["mapping"]
+            for gene_name, ensembl_list in gene_to_ens.items():
+                for ens_id in ensembl_list:
+                    try:
+                        qry_dict["ensgs_to_gene"][ens_id].update([gene_name])
+                    except KeyError:
+                        qry_dict["ensgs_to_gene"][ens_id] = set([gene_name])
 
-# apply the function to get the gene names for the intersecting genes
-results["genes"] = results.apply(get_intersection_genes, axis=1)
+        # define a function to convert ensembl gene ids to gene names in the results
+        def get_intersection_genes(row):
+            q = row["query"]
+            # get ensembl IDs of all genes in query
+            ens_array = meta["genes_metadata"]["query"][q]["ensgs_array"]
+            # get indexes of genes that are intersecting the term
+            ind = np.array([(len(i) > 0) for i in row["intersections"]])
+            # get ensembl IDs of genes in the intersection
+            ens = ens_array[ind]
+            # get ensembl to gene mapping for query
+            mapping_dict = meta["genes_metadata"]["query"][q]["ensgs_to_gene"]
+            # create a set to add gene ids matching the ensembl IDs in the intersection
+            genes = set()
+            for e in ens:
+                genes.update(mapping_dict[e])
+            return genes
+        
+        # apply the function to get the gene names for the intersecting genes
+        results["genes"] = results.apply(get_intersection_genes, axis=1)
 
-# calcutale fold enrichment for each term
-results["Fold Enrichment"] = (
-    (results["intersection_size"] / results["query_size"])
-    /(results["term_size"] / results["effective_domain_size"]))
+        # calcutale fold enrichment for each term
+        results["Fold Enrichment"] = (
+            (results["intersection_size"] / results["query_size"])
+            /(results["term_size"] / results["effective_domain_size"]))
 
-# add database source names to the results
-db_map = {"GO:CC": "GO Cellular Component",
-          "GO:BP": "GO Biological Process",
-          "GO:MF": "GO Molecular Function",
-          "HP": "Human Protein Atlas",
-          "WP": "WikiPathways",
-          "KEGG": "KEGG",
-          "TF": "TRANSFAC",
-          "MIRNA": "miRTarBase",
-          "CORUM": "CORUM",
-          "REAC": "Reactome"}
+        # add database source names to the results
+        db_map = {"GO:CC": "GO Cellular Component",
+                "GO:BP": "GO Biological Process",
+                "GO:MF": "GO Molecular Function",
+                "HP": "Human Phenotype Ontology",
+                "HPA": "Human Protein Atlas",
+                "WP": "WikiPathways",
+                "KEGG": "KEGG",
+                "TF": "TRANSFAC",
+                "MIRNA": "miRTarBase",
+                "CORUM": "CORUM",
+                "REAC": "Reactome"}
 
-results["database"] = results["source"].replace(db_map)
+        results["database"] = results["source"].replace(db_map)
 
-# add -log10 adjusted p-value to the results
-results["-logPadj"] = -np.log10(results["p_value"])
+        # add -log10 adjusted p-value to the results
+        results["-logPadj"] = -np.log10(results["p_value"])
 
-# add a nicer fomatted version of up or down regulated query names
-if lfc_provided:
-    results["Expression"] = results["query"].apply(
-        lambda a: "Up-regulated" if a.split("_")[-1] == "UP"
-              else "Down-regulated")
+        # add a nicer fomatted version of up or down regulated query names
+        if lfc_provided:
+            results["Expression"] = results["query"].apply(
+                lambda a: "Up-regulated" if a.split("_")[-1] == "UP"
+                    else "Down-regulated")
 
-# save the results to a csv file
-results.drop(columns={"intersections"}, inplace=True)
-results.to_csv(query_name + ".gprofiler.csv", index=False)
+        # save the results to a csv file
+        results.drop(columns={"intersections"}, inplace=True)
+        results.to_csv(results_filename, index=False)
 
 # versions
 
 versions = {"python": python_version(),
-			"pandas": pd.__version__,
+            "pandas": pd.__version__,
             "numpy": np.__version__,
-            "requests": requests.__version__,
-			"gprofiler_api": meta["version"],
-			"gprofiler_timestamp": meta["timestamp"]
+            "requests": requests.__version__
 }
+versions.update(versions_dict)
+
 with open("versions.yml", "w") as outfile:
     outfile.write("$task.process" + ":\\n")
     for v in versions:
-    	outfile.write("\\t" + v + ": " + versions[v] + "\\n")
+        outfile.write("\\t" + v + ": " + versions[v] + "\\n")
 
 subprocess.call(["cp", ".command.sh", query_name + ".${task.process}.command.sh"])
 """

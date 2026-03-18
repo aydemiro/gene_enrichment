@@ -80,18 +80,21 @@ max_size = ${max_set_size}
 permutation_num = ${permutation_num}
 threads = ${task.cpus}
 
+# create a dictionary to hold all gene set libraries
+library_dict = {}
+
 # get gene sets from input sources
 # 1. msigdb gene sets
 
 # set default MSigDB gene sets if not provided by user
 human_msig_dbs = (
-	'c2.cgp, c2.cp.biocarta, c2.cp.kegg_medicus, c2.cp.pid,c2.cp.reactome, '
-	'c2.cp.wikipathways, c3.mir.mirdb, c3.tft.gtrd, c5.go.bp, c5.go.cc, '
-	'c5.go.mf, c7.immunesigdb, c9.all, h.all'
+    'h.all, c2.cgp, c2.cp.biocarta, c2.cp.kegg_medicus, c2.cp.pid,'
+    'c2.cp.reactome, c2.cp.wikipathways, c3.mir.mirdb, c3.tft.gtrd, c5.go.bp, '
+    'c5.go.cc, c5.go.mf, c7.immunesigdb, c9.all'
 )
 mouse_msig_dbs = (
-	'm2.cgp, m2.cp.biocarta, m2.cp.reactome, m2.cp.wikipathways, m3.gtrd, '
-	'm3.mirdb, m5.go.bp, m5.go.cc, m5.go.mf, m7.all, mh.all'
+    'mh.all, m2.cgp, m2.cp.biocarta, m2.cp.reactome, m2.cp.wikipathways, m3.gtrd,'
+    'm3.mirdb, m5.go.bp, m5.go.cc, m5.go.mf, m7.all'
 )
 
 # set test MSigDB gene sets for testing purposes
@@ -131,21 +134,26 @@ for db_name in msig_dbs:
     else:
         print("MSig gene set {} returned no genes for database version {}".format(
             db_name, msigdb_version))
+if msig_gs_dict:
+    library_dict["msigdb"] = msig_gs_dict
 
 # 2. Enrichr gene sets
 
 # set default Enrichr gene set libraries if not provided by user
 if enrichr_dbs == "default":
     enrichr_dbs = (
-        "ARCHS4_Kinases_Coexp, ARCHS4_TFs_Coexp, ChEA_2022, "
+        "BioCarta_2016, BioPlanet_2019, CORUM, Elsevier_Pathway_Collection, "
+        "KEGG_2026, ARCHS4_TFs_Coexp, ChEA_2022, "
+        "ENCODE_and_ChEA_Consensus_TFs_from_ChIP-X,"
         "DepMap_CRISPR_GeneDependency_CellLines_2023, Panther_2016, "
         "HMDB_Metabolites, JASPAR_PWM_Human_2025, TRANSFAC_and_JASPAR_PWMs,"
-        "TargetScan_microRNA_2017, Kinase_Perturbations_from_GEO_down, "
-        "Kinase_Perturbations_from_GEO_up, L1000_Kinase_and_GPCR_Perturbations_down,"
+        "TargetScan_microRNA_2017, ARCHS4_Kinases_Coexp, "
+        "Kinase_Perturbations_from_GEO_down, Kinase_Perturbations_from_GEO_up, "
+        "L1000_Kinase_and_GPCR_Perturbations_down,"
         "L1000_Kinase_and_GPCR_Perturbations_up"
     )
 elif enrichr_dbs == "test":
-    enrichr_dbs = "ChEA_2022, Panther_2016"
+    enrichr_dbs = "ChEA_2022, KEGG_2026"
 
 enrichr_dbs = list(set([db.strip() for db in enrichr_dbs.strip().split(",")]))
 
@@ -159,6 +167,8 @@ for db_name in enrichr_dbs:
     else:
         print("Enrichr library {} returned no genes for organism {}".format(
             db_name, organism))
+if enrichr_gs_dict:
+    library_dict["enrichr"] = enrichr_gs_dict
 
 # 3. gene sets from user-provided excel file
 try:
@@ -172,6 +182,8 @@ for k,v in gs_excel.items():
     if uppercase:
         s_list = list(map(str.upper, s_list))
     excel_gene_sets[s_name] = s_list
+if excel_gene_sets:
+    library_dict["excel"] = {"excel": excel_gene_sets}
 
 # 4. gene sets from user-provided GMT file
 try:
@@ -180,21 +192,30 @@ try:
         gmt_gene_sets = {k:list(map(str.upper, v)) for k,v in gmt_gene_sets.items()}
 except (ValueError, NameError):
     gmt_gene_sets = {}
+if gmt_gene_sets:
+    library_dict["gmt"] = {"gmt": gmt_gene_sets}
 
-# organize all gene sets into a single dictionary
-library_dict = {"enrichr": enrichr_gs_dict,
-                "msigdb": msig_gs_dict,
-                "excel": {"excel": excel_gene_sets},
-                "gmt": {"gmt": gmt_gene_sets}}
+# remove gene sets that are too small or too large
+filtered_library_dict = {}
+for lib_name, lib in library_dict.items():
+    for gn, gene_sets in lib.items():
+        filtered_gene_sets = {k:v for k,v in gene_sets.items()
+                                if len(v) >= min_size and len(v) <= max_size}
+        if filtered_gene_sets:
+            try:
+                filtered_library_dict[lib_name][gn] = filtered_gene_sets
+            except KeyError:
+                filtered_library_dict[lib_name] = {gn: filtered_gene_sets}
+library_dict = filtered_library_dict
 
 # read the DE results file
 if id_column == "index":
-	de = pd.read_csv(de_file, index_col=0)
-	de.index.name = "gene"
-	de.reset_index(inplace=True)
-	id_column = "gene"
+    de = pd.read_csv(de_file, index_col=0)
+    de.index.name = "gene"
+    de.reset_index(inplace=True)
+    id_column = "gene"
 else:
-	de = pd.read_csv(de_file)
+    de = pd.read_csv(de_file)
 
 # check and handle duplicated gene ids
 if de.duplicated(subset=id_column).any():
@@ -226,19 +247,22 @@ for lib_name, lib in library_dict.items():
     if len(lib) > 0:
         for gn, gene_sets in lib.items():
             if len(gene_sets) > 0:
-                pre_res = gp.prerank(rnk=rnk,
-                                    gene_sets=gene_sets,
-                                    threads=threads,
-                                    min_size=min_size,
-                                    max_size=max_size,
-                                    permutation_num=permutation_num,
-                                    outdir=None,
-                                    verbose=True)
+                try:
+                    pre_res = gp.prerank(rnk=rnk,
+                                        gene_sets=gene_sets,
+                                        min_size=min_size,
+                                        max_size=max_size,
+                                        threads=threads,
+                                        permutation_num=permutation_num,
+                                        outdir=None,
+                                        verbose=True)
 
-                res= pre_res.res2d.copy()
-                res["Source"] = lib_name
-                res["Library"] = gn
-                gsea_results.append(res)
+                    res= pre_res.res2d.copy()
+                    res["Source"] = lib_name
+                    res["Library"] = gn
+                    gsea_results.append(res)
+                except Exception as e:
+                    print("Error running GSEA for library {}: {}".format(gn, str(e)))
 
 if len(gsea_results) > 0:
     gsea_results = pd.concat(gsea_results, ignore_index=True)
@@ -284,30 +308,39 @@ if pvalue_column not in ("", "NA", "na"):
 else:
     sig_df = de.copy()
 
-if lfc_column not in ("", "NA", "na"):
-    up_mask = de[lfc_column] >= lfc_cutoff
-    down_mask = de[lfc_column] <= lfc_cutoff
-    up_genes = list(sig_df.loc[up_mask, id_column])
-    down_genes = list(sig_df.loc[down_mask, id_column])
-    lfc_provided = True
+enrich_results_filename = query_name + "_enrich_results.csv"
+
+# create empty results file if no significant genes are found after filtering
+if sig_df.empty:
+    with open(enrich_results_filename, "w") as f:
+        pass
 else:
-    lfc_provided = False
-    sig_genes = list(sig_df[id_column])
+    if lfc_column not in ("", "NA", "na"):
+        up_mask = de[lfc_column] >= lfc_cutoff
+        down_mask = de[lfc_column] <= lfc_cutoff
+        up_genes = list(sig_df.loc[up_mask, id_column])
+        down_genes = list(sig_df.loc[down_mask, id_column])
+        lfc_provided = True
+    else:
+        lfc_provided = False
+        sig_genes = list(sig_df[id_column])
 
-# create query dictionaries
-if not lfc_provided:
-    q_dict = {query_name: sig_genes}
-else:
-    q_dict = {query_name + "_UP": up_genes,
-              query_name + "_DN": down_genes}
+    # create query dictionaries
+    if not lfc_provided:
+        q_dict = {query_name: sig_genes}
+    else:
+        q_dict = {}
+        if up_genes:
+            q_dict[query_name + "_UP"] = up_genes
+        if down_genes:
+            q_dict[query_name + "_DN"] = down_genes
 
-# use all genes as background
-background_genes = list(de[id_column])
+    # use all genes as background
+    background_genes = list(de[id_column])
 
-# run ORA for each gene set database
-enrich_results = []
-for lib_name, lib in library_dict.items():
-    if len(lib) > 0:
+    # run ORA for each gene set database
+    enrich_results = []
+    for lib_name, lib in library_dict.items():
         for gn, gene_sets in lib.items():
             if len(gene_sets) > 0:
                 for q, gene_list in q_dict.items():
@@ -317,43 +350,45 @@ for lib_name, lib in library_dict.items():
                             no_plot=True,
                             outdir=None,
                         verbose=False)
+                    res = enrich_res.results.copy()
 
-                res= enrich_res.results.copy()
-                res["Source"] = lib_name
-                res["Library"] = gn
-                res["Query"] = q
-                enrich_results.append(res)
+                    if len(res) > 0:
+                        res= enrich_res.results.copy()
+                        res["Source"] = lib_name
+                        res["Library"] = gn
+                        res["Query"] = q
+                        enrich_results.append(res)
 
-if len(enrich_results) > 0:
-    enrich_results = pd.concat(enrich_results, ignore_index=True)
+    if len(enrich_results) > 0:
+        enrich_results = pd.concat(enrich_results, ignore_index=True)
 
-    # add -log10 adjusted p-value to the results
-    enrich_results["-logPadj"] = -np.log10(enrich_results["Adjusted P-value"])
-    enrich_results["-logP"] = -np.log10(enrich_results["P-value"])
+        # add -log10 adjusted p-value to the results
+        enrich_results["-logPadj"] = -np.log10(enrich_results["Adjusted P-value"])
+        enrich_results["-logP"] = -np.log10(enrich_results["P-value"])
 
-    # add a nicer fomatted version of up or down regulated query names
-    if lfc_provided:
-        enrich_results["Expression"] = enrich_results["Query"].apply(
-            lambda a: "Up-regulated" if a.split("_")[-1] == "UP"
-                else "Down-regulated")
+        # add a nicer fomatted version of up or down regulated query names
+        if lfc_provided:
+            enrich_results["Expression"] = enrich_results["Query"].apply(
+                lambda a: "Up-regulated" if a.split("_")[-1] == "UP"
+                    else "Down-regulated")
 
-    # process overlap column to get set size and other useful values
-        enrich_results[["Overlap Size", "Term Size"]] = enrich_results["Overlap"].apply(
-            lambda a: pd.Series(map(int, a.split("/"))))
-        enrich_results["Overlap %"] = round(
-            enrich_results["Overlap Size"] / enrich_results["Term Size"] * 100, 1)
+        # process overlap column to get set size and other useful values
+            enrich_results[["Overlap Size", "Term Size"]] = enrich_results["Overlap"].apply(
+                lambda a: pd.Series(map(int, a.split("/"))))
+            enrich_results["Overlap %"] = round(
+                enrich_results["Overlap Size"] / enrich_results["Term Size"] * 100, 1)
 
-    # save results
-    enrich_results.to_csv(query_name + "_enrich_results.csv", index=False)
+        # save results
+        enrich_results.to_csv(enrich_results_filename, index=False)
 
-else:
-    with open(query_name + "_enrich_results.csv", "w") as f:
-        pass
+    else:
+        with open(enrich_results_filename, "w") as f:
+            pass
 
 # versions
 
 versions = {"python": python_version(),
-			"pandas": pd.__version__,
+            "pandas": pd.__version__,
             "numpy": np.__version__,
             "gseapy": gp.__version__,
             "msigdb": msigdb_version}
@@ -361,7 +396,7 @@ versions = {"python": python_version(),
 with open("versions.yml", "w") as outfile:
     outfile.write("$task.process" + ":\\n")
     for v in versions:
-    	outfile.write("\\t" + v + ": " + versions[v] + "\\n")
+        outfile.write("\\t" + v + ": " + versions[v] + "\\n")
 
 subprocess.call(["cp", ".command.sh", query_name + ".${task.process}.command.sh"])
 subprocess.call(["cp", ".command.err", query_name + ".gseapy.log"])
