@@ -18,10 +18,6 @@ lfc_column = "" //* @input @description:"Name of the fold change column if the i
 lfc_cutoff = 0.0 //* @input @description:"Minimum log fold change to filter the input gene set, only if lfc_column is given."
 rank_column = "stat" //* @input @description:"Name of the column to rank genes by for GSEA. Can be a statistic like t-statistic or log fold change. The column values should be numeric."
 ascending = "no" //* @dropdown @options:"yes,no" @description:"Whether to rank genes in ascending order or not."
-organism = "" //* @dropdown @options:"mouse,human,yeast,worm,fly,fish" @description:"Organism name. Limited support for yeast, worm, fly and fish."
-msigdb_version = "default" //* @input @description:"Version of the MSigDB gene sets to use. Default is 2026.1.Mm for mouse and 2026.1.Hs for human."
-msig_dbs = "default" //* @input @description:"Comma-separated list of MSigDB gene set databases to use. Default is a set of selected databases for mouse and human. See pipeline documentation for options."
-enrichr_dbs = "default" //* @input @description:"Comma-separated list of Enrichr gene set libraries to use. Default is a set of selected libraries. See https://maayanlab.cloud/Enrichr/#libraries for options."
 convert_to_uppercase = "yes" //* @dropdown @options:"yes,no" @description:"Whether to convert gene IDs to uppercase before enrichment analysis. This is useful to be able to use mouse genes with enrichr libraries that only support upper case even for mouse gene sets, as well as sources."
 min_set_size = 15 //* @input @description:"Minimum gene set size for enrichment analysis."
 max_set_size = 500 //* @input @description:"Maximum gene set size for enrichment analysis."
@@ -35,12 +31,8 @@ pvalue_column = task.ext.pvalue_column ?: pvalue_column
 pvalue_cutoff = task.ext.pvalue_cutoff ?: pvalue_cutoff
 lfc_column = task.ext.lfc_column ?: lfc_column
 lfc_cutoff = task.ext.lfc_cutoff ?: lfc_cutoff
-organism = task.ext.organism ?: organism
 rank_column = task.ext.rank_column ?: rank_column
 ascending = task.ext.ascending ?: ascending
-msigdb_version = task.ext.msigdb_version ?: msigdb_version
-msig_dbs = task.ext.msig_dbs ?: msig_dbs
-enrichr_dbs = task.ext.enrichr_dbs ?: enrichr_dbs
 convert_to_uppercase = task.ext.convert_to_uppercase ?: convert_to_uppercase
 min_set_size = task.ext.min_set_size ?: min_set_size
 max_set_size = task.ext.max_set_size ?: max_set_size
@@ -54,11 +46,13 @@ import os
 import pandas as pd
 import numpy as np
 import gseapy as gp
+import pickle
 from gseapy import Msigdb as msig
 import subprocess
 from platform import python_version
 
 de_file = "${de_file}"
+library_file = "${library_file}"
 id_column = "${id_column}"
 duplicate_id_strategy = "${duplicate_id_strategy}"
 pvalue_column = "${pvalue_column}"
@@ -66,141 +60,30 @@ pvalue_cutoff = ${pvalue_cutoff}
 lfc_column = "${lfc_column}"
 lfc_cutoff = ${lfc_cutoff}
 query_name = "${query_name}"
-organism = "${organism}"
 rank_column = "${rank_column}"
 ascending = "${ascending}" == "yes"
-msigdb_version = "${msigdb_version}"
-msig_dbs = "${msig_dbs}"
-enrichr_dbs = "${enrichr_dbs}"
-gmt_file = "${gmt_file}"
-excel_file = "${excel_file}"
 uppercase = "${convert_to_uppercase}" == "yes"
 min_size = ${min_set_size}
 max_size = ${max_set_size}
 permutation_num = ${permutation_num}
 threads = ${task.cpus}
 
-# create a dictionary to hold all gene set libraries
-library_dict = {}
-
-# get gene sets from input sources
-# 1. msigdb gene sets
-
-# set default MSigDB gene sets if not provided by user
-human_msig_dbs = (
-    'h.all, c2.cgp, c2.cp.biocarta, c2.cp.kegg_medicus, c2.cp.pid,'
-    'c2.cp.reactome, c2.cp.wikipathways, c3.mir.mirdb, c3.tft.gtrd, c5.go.bp, '
-    'c5.go.cc, c5.go.mf, c7.immunesigdb, c9.all'
-)
-mouse_msig_dbs = (
-    'mh.all, m2.cgp, m2.cp.biocarta, m2.cp.reactome, m2.cp.wikipathways, m3.gtrd,'
-    'm3.mirdb, m5.go.bp, m5.go.cc, m5.go.mf, m7.all'
-)
-
-# set test MSigDB gene sets for testing purposes
-human_test_msig_dbs = "c2.cp.reactome, c5.go.bp"
-mouse_test_msig_dbs = "m2.cp.reactome, m5.go.bp"
-
-if msig_dbs == "default":
-    if organism == "mouse":
-        msig_dbs = mouse_msig_dbs
-    elif organism == "human":
-        msig_dbs = human_msig_dbs
-elif msig_dbs == "test":
-    if organism == "mouse":
-        msig_dbs = mouse_test_msig_dbs
-    elif organism == "human":
-        msig_dbs = human_test_msig_dbs
-
-# convert the comma-separated string of gene set databases into a list
-msig_dbs = list(set([db.strip() for db in msig_dbs.strip().split(",")]))
-
-# set default MSigDB version if not provided by user
-if msigdb_version == "default":
-    if organism == "mouse":
-        msigdb_version = "2026.1.Mm"
-    elif organism == "human":
-        msigdb_version = "2026.1.Hs"
-
-# get gene sets from MSigDB
-msig_gs_dict = {}
-
-for db_name in msig_dbs:
-    db = msig.get_gmt(category=db_name, dbver=msigdb_version)
-    if db is not None:
-        if uppercase:
-            db = {k:list(map(str.upper, v)) for k,v in db.items()}
-        msig_gs_dict[db_name] = db
-    else:
-        print("MSig gene set {} returned no genes for database version {}".format(
-            db_name, msigdb_version))
-if msig_gs_dict:
-    library_dict["msigdb"] = msig_gs_dict
-
-# 2. Enrichr gene sets
-
-# set default Enrichr gene set libraries if not provided by user
-if enrichr_dbs == "default":
-    enrichr_dbs = (
-        "BioCarta_2016, BioPlanet_2019, CORUM, Elsevier_Pathway_Collection, "
-        "KEGG_2026, ARCHS4_TFs_Coexp, ChEA_2022, "
-        "ENCODE_and_ChEA_Consensus_TFs_from_ChIP-X,"
-        "DepMap_CRISPR_GeneDependency_CellLines_2023, Panther_2016, "
-        "HMDB_Metabolites, JASPAR_PWM_Human_2025, TRANSFAC_and_JASPAR_PWMs,"
-        "TargetScan_microRNA_2017, ARCHS4_Kinases_Coexp, "
-        "Kinase_Perturbations_from_GEO_down, Kinase_Perturbations_from_GEO_up, "
-        "L1000_Kinase_and_GPCR_Perturbations_down,"
-        "L1000_Kinase_and_GPCR_Perturbations_up"
-    )
-elif enrichr_dbs == "test":
-    enrichr_dbs = "ChEA_2022, KEGG_2026"
-
-enrichr_dbs = list(set([db.strip() for db in enrichr_dbs.strip().split(",")]))
-
-# get gene sets from Enrichr
-enrichr_gs_dict = {}
-
-for db_name in enrichr_dbs:
-    db = gp.get_library(name=db_name, organism=organism)
-    if db is not None:
-        enrichr_gs_dict[db_name] = db
-    else:
-        print("Enrichr library {} returned no genes for organism {}".format(
-            db_name, organism))
-if enrichr_gs_dict:
-    library_dict["enrichr"] = enrichr_gs_dict
-
-# 3. gene sets from user-provided excel file
-try:
-    gs_excel = pd.read_excel(excel_file, header=None, sheet_name=None)
-except (ValueError, NameError):
-    gs_excel = {}
-excel_gene_sets = {}
-for k,v in gs_excel.items():
-    s_name = "".join([c if c.isalnum() else "_" for c in k.strip()])
-    s_list = list(v.squeeze().str.strip().unique())
-    if uppercase:
-        s_list = list(map(str.upper, s_list))
-    excel_gene_sets[s_name] = s_list
-if excel_gene_sets:
-    library_dict["excel"] = {"excel": excel_gene_sets}
-
-# 4. gene sets from user-provided GMT file
-try:
-    gmt_gene_sets = gp.read_gmt(gmt_file)
-    if uppercase:
-        gmt_gene_sets = {k:list(map(str.upper, v)) for k,v in gmt_gene_sets.items()}
-except (ValueError, NameError):
-    gmt_gene_sets = {}
-if gmt_gene_sets:
-    library_dict["gmt"] = {"gmt": gmt_gene_sets}
+# load library dictionary from file
+with open(library_file, "rb") as f:
+    library_dict = pickle.load(f)
 
 # remove gene sets that are too small or too large
 filtered_library_dict = {}
 for lib_name, lib in library_dict.items():
     for gn, gene_sets in lib.items():
-        filtered_gene_sets = {k:v for k,v in gene_sets.items()
-                                if len(v) >= min_size and len(v) <= max_size}
+        fgs = {k:v for k,v in gene_sets.items()
+               if len(v) >= min_size and len(v) <= max_size}
+
+        # convert gene ids to uppercase if the option is set
+        if uppercase:
+            filtered_gene_sets = {k:list(map(str.upper, v)) for k,v in fgs.items()}
+        else:
+            filtered_gene_sets = fgs
         if filtered_gene_sets:
             try:
                 filtered_library_dict[lib_name][gn] = filtered_gene_sets
@@ -216,6 +99,10 @@ if id_column == "index":
     id_column = "gene"
 else:
     de = pd.read_csv(de_file)
+
+# convert gene ids to uppercase if the option is set
+if uppercase:
+    de[id_column] = de[id_column].str.upper()
 
 # check and handle duplicated gene ids
 if de.duplicated(subset=id_column).any():
